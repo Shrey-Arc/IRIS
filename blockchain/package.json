@@ -1,0 +1,22 @@
+{
+  "name": "iris-blockchain",
+  "version": "1.0.0",
+  "description": "Blockchain integration for IRIS",
+  "main": "anchor.js",
+  "scripts": {
+    "anchor": "node anchor.js",
+    "deploy": "npx hardhat run scripts/deploy.js --network sepolia",
+    "test": "npx hardhat test"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.27.1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
