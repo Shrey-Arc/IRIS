@@ -382,6 +382,7 @@ async def trigger_analysis(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/crossverify")
 def cross_verify_documents(body: CrossVerifyRequest, Authorization: str = Header(None)):
     """Cross-verify multiple documents"""
@@ -396,22 +397,49 @@ def cross_verify_documents(body: CrossVerifyRequest, Authorization: str = Header
         
         # Verify all documents belong to user
         from utils.auth import supabase
-        docs = supabase.table("documents").select("id").eq(
+        docs = supabase.table("documents").select("id, status").eq(
             "user_id", user_id
         ).in_("id", body.document_ids).execute()
         
         if len(docs.data) != len(body.document_ids):
             raise HTTPException(status_code=404, detail="One or more documents not found")
         
-        # Call ML API for cross-verification
-        result = call_ml("crossverify", {"document_ids": body.document_ids})
+        # Check if all documents have been analyzed
+        incomplete = [d for d in docs.data if d['status'] != 'done']
+        if incomplete:
+            raise HTTPException(
+                status_code=400,
+                detail="All documents must be analyzed before cross-verification"
+            )
         
-        # Store result
-        supabase.table("analyses").insert({
-            "user_id": user_id,
-            "document_id": body.document_ids[0],  # Primary document
+        # Get parsed fields from first document's analysis
+        primary_doc_id = body.document_ids[0]
+        analysis = supabase.table("analyses").select("risk").eq(
+            "document_id", primary_doc_id
+        ).execute()
+        
+        if not analysis.data or not analysis.data[0].get('risk'):
+            raise HTTPException(
+                status_code=400,
+                detail="Primary document analysis not found"
+            )
+        
+        parsed_fields = analysis.data[0]['risk'].get('parsed_fields', {})
+        
+        if not parsed_fields:
+            raise HTTPException(
+                status_code=400,
+                detail="No parsed fields found in primary document"
+            )
+        
+        # Call ML API for cross-verification with fields + document_ids
+        from utils.analysis import call_cross_verification
+        result = call_cross_verification(parsed_fields, body.document_ids)
+        
+        # Store cross-verify result in primary document's analysis
+        supabase.table("analyses").update({
             "crossverify": result
-        }).execute()
+        }).eq("document_id", primary_doc_id).execute()
         
         log_action(user_id, "crossverify", "analyses", None, {"document_ids": body.document_ids})
         
@@ -419,6 +447,8 @@ def cross_verify_documents(body: CrossVerifyRequest, Authorization: str = Header
             "success": True,
             "matches": result.get("matches", {}),
             "overall_score": result.get("overall_score", 0),
+            "verification_status": result.get("verification_status", "unknown"),
+            "discrepancies": result.get("discrepancies", []),
             "details": result
         }
         
@@ -426,7 +456,7 @@ def cross_verify_documents(body: CrossVerifyRequest, Authorization: str = Header
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 # ==================== HEATMAP ENDPOINTS ====================
 
 @app.get("/heatmaps")

@@ -28,7 +28,7 @@ SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SERVICE_KEY)
 
 def create_risk_report_pdf(analysis_data: dict, output_path: str):
-    """Generate Risk Analysis Report PDF"""
+    """Generate Credit Risk Analysis Report PDF"""
     doc = SimpleDocTemplate(output_path, pagesize=letter)
     story = []
     styles = getSampleStyleSheet()
@@ -42,55 +42,107 @@ def create_risk_report_pdf(analysis_data: dict, output_path: str):
         spaceAfter=30,
         alignment=TA_CENTER
     )
-    story.append(Paragraph("Risk Analysis Report", title_style))
+    story.append(Paragraph("Credit Risk Analysis Report", title_style))
     story.append(Spacer(1, 0.3*inch))
     
-    # Risk Score
+    # Get risk data
     risk_data = analysis_data.get('risk', {})
-    risk_score = risk_data.get('risk_score', 0)
     
+    # Risk Score and Prediction
     score_style = ParagraphStyle(
         'Score',
         parent=styles['Normal'],
         fontSize=16,
-        spaceAfter=20
+        spaceAfter=15
     )
     
-    story.append(Paragraph(f"<b>Risk Score:</b> {risk_score:.2%}", score_style))
-    story.append(Spacer(1, 0.2*inch))
+    risk_score = risk_data.get('risk_score', 0)
+    prediction = risk_data.get('prediction', 0)
+    risk_class = risk_data.get('risk_class', 'unknown')
+    probability = risk_data.get('probability', 0)
     
-    # Risk Level
-    if risk_score < 0.3:
-        risk_level = "LOW"
-        color = colors.green
-    elif risk_score < 0.7:
-        risk_level = "MEDIUM"
-        color = colors.orange
-    else:
-        risk_level = "HIGH"
-        color = colors.red
+    # Display prediction result
+    pred_text = "BAD CREDIT" if prediction == 1 else "GOOD CREDIT"
+    pred_color = colors.red if prediction == 1 else colors.green
     
-    story.append(Paragraph(f"<b>Risk Level:</b> <font color='{color.hexval()}'>{risk_level}</font>", score_style))
+    story.append(Paragraph(
+        f"<b>Credit Assessment:</b> <font color='{pred_color.hexval()}'><b>{pred_text}</b></font>",
+        score_style
+    ))
+    story.append(Paragraph(f"<b>Risk Score:</b> {risk_score:.1%}", score_style))
+    story.append(Paragraph(f"<b>Confidence:</b> {probability:.1%}", score_style))
     story.append(Spacer(1, 0.3*inch))
     
-    # Top Risk Factors
-    story.append(Paragraph("<b>Key Risk Factors:</b>", styles['Heading2']))
+    # Risk Factors
+    story.append(Paragraph("<b>Risk Factors Identified:</b>", styles['Heading2']))
     story.append(Spacer(1, 0.1*inch))
     
-    factors = risk_data.get('top_factors', [])
-    for i, factor in enumerate(factors, 1):
-        story.append(Paragraph(f"{i}. {factor}", styles['Normal']))
-        story.append(Spacer(1, 0.1*inch))
+    risk_factors = risk_data.get('risk_factors', [])
+    if risk_factors:
+        for i, factor in enumerate(risk_factors, 1):
+            story.append(Paragraph(f"{i}. {factor}", styles['Normal']))
+            story.append(Spacer(1, 0.08*inch))
+    else:
+        story.append(Paragraph("No significant risk factors detected.", styles['Normal']))
     
-    # Explanation
-    if 'explanation' in risk_data:
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Parsed Credit Application Details
+    parsed_fields = risk_data.get('parsed_fields', {})
+    if parsed_fields:
+        story.append(Paragraph("<b>Credit Application Details:</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Create table for parsed fields
+        field_data = [['Field', 'Value']]
+        
+        field_labels = {
+            'age': 'Age',
+            'gender': 'Gender',
+            'job': 'Employment',
+            'housing': 'Housing Status',
+            'saving_accounts': 'Savings',
+            'checking_account': 'Checking Account',
+            'credit_amount': 'Credit Amount',
+            'duration': 'Loan Duration',
+            'purpose': 'Loan Purpose'
+        }
+        
+        for field, label in field_labels.items():
+            value = parsed_fields.get(field, 'N/A')
+            if field == 'credit_amount' and value != 'N/A':
+                value = f"₹{value:,.2f}"
+            elif field == 'duration' and value != 'N/A':
+                value = f"{value} months"
+            field_data.append([label, str(value)])
+        
+        table = Table(field_data, colWidths=[2.5*inch, 3.5*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        story.append(table)
         story.append(Spacer(1, 0.3*inch))
-        story.append(Paragraph("<b>Analysis Details:</b>", styles['Heading2']))
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(risk_data['explanation'], styles['Normal']))
     
-    # Generated timestamp
-    story.append(Spacer(1, 0.5*inch))
+    # Validation warnings if any
+    validation_errors = risk_data.get('validation_errors', [])
+    if validation_errors:
+        story.append(Paragraph("<b>⚠️ Data Quality Warnings:</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        for error in validation_errors:
+            story.append(Paragraph(f"• {error}", styles['Normal']))
+            story.append(Spacer(1, 0.08*inch))
+    
+    # Timestamp
+    story.append(Spacer(1, 0.4*inch))
     story.append(Paragraph(
         f"<i>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>",
         styles['Normal']
@@ -116,10 +168,19 @@ def create_compliance_report_pdf(analysis_data: dict, output_path: str):
     story.append(Paragraph("Compliance Analysis Report", title_style))
     story.append(Spacer(1, 0.3*inch))
     
-    # Compliance Score
+    # Compliance data
     compliance_data = analysis_data.get('compliance', {})
-    compliance_score = compliance_data.get('compliance_score', 0)
     
+    # Check if compliance is available
+    status = compliance_data.get('status', 'unknown')
+    if status == 'not_available':
+        story.append(Paragraph(
+            "<b>Note:</b> " + compliance_data.get('message', 'Compliance endpoint not yet available'),
+            styles['Normal']
+        ))
+        story.append(Spacer(1, 0.2*inch))
+    
+    # Compliance Score
     score_style = ParagraphStyle(
         'Score',
         parent=styles['Normal'],
@@ -127,7 +188,15 @@ def create_compliance_report_pdf(analysis_data: dict, output_path: str):
         spaceAfter=20
     )
     
-    story.append(Paragraph(f"<b>Compliance Score:</b> {compliance_score:.2%}", score_style))
+    compliance_score = compliance_data.get('compliance_score', 0)
+    story.append(Paragraph(f"<b>Compliance Score:</b> {compliance_score:.1%}", score_style))
+    
+    verification_status = compliance_data.get('status', 'unknown').upper()
+    status_color = colors.green if compliance_score >= 0.8 else colors.red
+    story.append(Paragraph(
+        f"<b>Status:</b> <font color='{status_color.hexval()}'>{verification_status}</font>",
+        score_style
+    ))
     story.append(Spacer(1, 0.3*inch))
     
     # Violations Table
@@ -138,22 +207,24 @@ def create_compliance_report_pdf(analysis_data: dict, output_path: str):
         story.append(Spacer(1, 0.2*inch))
         
         # Create table
-        table_data = [['#', 'Clause', 'Issue']]
+        table_data = [['#', 'Regulation/Clause', 'Issue', 'Severity']]
         for i, violation in enumerate(violations, 1):
+            severity = violation.get('severity', 'unknown').upper()
             table_data.append([
                 str(i),
                 Paragraph(violation.get('clause', 'N/A'), styles['Normal']),
-                Paragraph(violation.get('issue', 'N/A'), styles['Normal'])
+                Paragraph(violation.get('issue', 'N/A'), styles['Normal']),
+                severity
             ])
         
-        table = Table(table_data, colWidths=[0.5*inch, 2*inch, 4*inch])
+        table = Table(table_data, colWidths=[0.4*inch, 1.8*inch, 3.2*inch, 0.8*inch])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -161,10 +232,21 @@ def create_compliance_report_pdf(analysis_data: dict, output_path: str):
         
         story.append(table)
     else:
-        story.append(Paragraph("<b>No compliance violations found.</b>", styles['Normal']))
+        story.append(Paragraph("<b>✓ No compliance violations detected.</b>", styles['Normal']))
     
-    # Generated timestamp
-    story.append(Spacer(1, 0.5*inch))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Checks performed
+    checks = compliance_data.get('checks_performed', [])
+    if checks:
+        story.append(Paragraph(f"<b>Checks Performed ({len(checks)}):</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        for check in checks:
+            story.append(Paragraph(f"✓ {check}", styles['Normal']))
+            story.append(Spacer(1, 0.05*inch))
+    
+    # Timestamp
+    story.append(Spacer(1, 0.4*inch))
     story.append(Paragraph(
         f"<i>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>",
         styles['Normal']
@@ -187,13 +269,22 @@ def create_crossverify_report_pdf(analysis_data: dict, output_path: str):
         spaceAfter=30,
         alignment=TA_CENTER
     )
-    story.append(Paragraph("Cross-Verification Report", title_style))
+    story.append(Paragraph("Field Verification Report", title_style))
     story.append(Spacer(1, 0.3*inch))
     
-    # Overall Score
+    # Cross-verify data
     crossverify_data = analysis_data.get('crossverify', {})
-    overall_score = crossverify_data.get('overall_score', 0)
     
+    # Check if cross-verify is available
+    status = crossverify_data.get('status', 'unknown')
+    if status == 'not_available':
+        story.append(Paragraph(
+            "<b>Note:</b> " + crossverify_data.get('message', 'Cross-verification endpoint not yet available'),
+            styles['Normal']
+        ))
+        story.append(Spacer(1, 0.2*inch))
+    
+    # Overall Score
     score_style = ParagraphStyle(
         'Score',
         parent=styles['Normal'],
@@ -201,7 +292,15 @@ def create_crossverify_report_pdf(analysis_data: dict, output_path: str):
         spaceAfter=20
     )
     
-    story.append(Paragraph(f"<b>Overall Match Score:</b> {overall_score:.2%}", score_style))
+    overall_score = crossverify_data.get('overall_score', 0)
+    story.append(Paragraph(f"<b>Overall Verification Score:</b> {overall_score:.1%}", score_style))
+    
+    verification_status = crossverify_data.get('verification_status', 'unknown').upper()
+    status_color = colors.green if overall_score >= 0.8 else colors.red
+    story.append(Paragraph(
+        f"<b>Status:</b> <font color='{status_color.hexval()}'>{verification_status}</font>",
+        score_style
+    ))
     story.append(Spacer(1, 0.3*inch))
     
     # Matches Table
@@ -211,36 +310,62 @@ def create_crossverify_report_pdf(analysis_data: dict, output_path: str):
         story.append(Paragraph("<b>Field-by-Field Verification:</b>", styles['Heading2']))
         story.append(Spacer(1, 0.2*inch))
         
-        table_data = [['Field', 'Status']]
-        for field, status in matches.items():
-            status_color = colors.green if status == 'match' else colors.red
+        table_data = [['Field', 'Status', 'Details']]
+        for field, match_status in matches.items():
+            # Color code status
+            if match_status == 'match':
+                status_text = f"<font color='green'><b>✓ MATCH</b></font>"
+            elif match_status == 'partial_match':
+                status_text = f"<font color='orange'><b>~ PARTIAL</b></font>"
+            elif match_status == 'mismatch':
+                status_text = f"<font color='red'><b>✗ MISMATCH</b></font>"
+            else:
+                status_text = match_status.upper()
+            
             table_data.append([
-                field.upper(),
-                Paragraph(f"<font color='{status_color.hexval()}'><b>{status.upper()}</b></font>", styles['Normal'])
+                field.replace('_', ' ').title(),
+                Paragraph(status_text, styles['Normal']),
+                ""
             ])
         
-        table = Table(table_data, colWidths=[3*inch, 3*inch])
+        table = Table(table_data, colWidths=[2*inch, 2*inch, 2*inch])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         
         story.append(table)
     
-    # Generated timestamp
-    story.append(Spacer(1, 0.5*inch))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Discrepancies
+    discrepancies = crossverify_data.get('discrepancies', [])
+    if discrepancies:
+        story.append(Paragraph(f"<b>⚠️ Discrepancies Detected ({len(discrepancies)}):</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        
+        for disc in discrepancies:
+            field = disc.get('field', 'Unknown')
+            details = disc.get('details', 'No details')
+            story.append(Paragraph(f"<b>{field.upper()}:</b> {details}", styles['Normal']))
+            story.append(Spacer(1, 0.08*inch))
+    
+    # Timestamp
+    story.append(Spacer(1, 0.4*inch))
     story.append(Paragraph(
         f"<i>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>",
         styles['Normal']
     ))
     
     doc.build(story)
+
 
 def create_certificate_pdf(dossier_data: dict, output_path: str):
     """Generate Blockchain Certificate PDF"""

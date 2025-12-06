@@ -1,181 +1,337 @@
 """
-ML API Mock Server for IRIS
-Simulates ML endpoints during development
+ML API Mock Server for IRIS Credit Risk
+Simulates all ML endpoints during development:
+- /predict - Credit risk prediction
+- /compliance - Document compliance checking
+- /crossverify - Field cross-verification
 """
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict
 import random
-import base64
 
-app = FastAPI(title="IRIS ML Mock API")
+app = FastAPI(
+    title="IRIS Credit Risk Mock API",
+    description="Mock ML endpoints for IRIS credit risk system",
+    version="1.0.0"
+)
 
-class RiskRequest(BaseModel):
-    text: str
-    document_id: str = None
-
-class ComplianceRequest(BaseModel):
-    text: str
-    document_id: str = None
-
-class CrossVerifyRequest(BaseModel):
-    document_ids: list
-    text: str = None
+class CreditRiskRequest(BaseModel):
+    age: Optional[int] = Field(None, ge=18, le=100)
+    gender: Optional[str] = None
+    job: Optional[str] = None
+    housing: Optional[str] = None
+    saving_accounts: Optional[str] = None
+    checking_account: Optional[str] = None
+    credit_amount: Optional[float] = Field(None, gt=0)
+    duration: Optional[int] = Field(None, gt=0)
+    purpose: Optional[str] = None
 
 @app.get("/")
 def home():
     return {
         "status": "online",
-        "service": "IRIS ML Mock API",
-        "endpoints": ["/risk", "/compliance", "/crossverify"]
+        "service": "IRIS Credit Risk Mock API",
+        "version": "1.0.0",
+        "endpoints": {
+            "predict": "POST /predict - Credit risk prediction",
+            "compliance": "POST /compliance - Document compliance check",
+            "crossverify": "POST /crossverify - Field cross-verification",
+            "health": "GET /health - Health check"
+        }
     }
 
-@app.post("/risk")
-def analyze_risk(request: RiskRequest):
-    """Mock risk analysis endpoint"""
+@app.post("/predict")
+def predict_credit_risk(request: CreditRiskRequest):
+    """
+    Mock credit risk prediction endpoint
+    Returns prediction, risk score, and risk factors
+    """
     
-    # Generate random but realistic risk score
-    risk_score = round(random.uniform(0.3, 0.85), 2)
+    # Validate required fields
+    missing_fields = []
+    if request.age is None:
+        missing_fields.append("age")
+    if request.gender is None:
+        missing_fields.append("gender")
+    if request.job is None:
+        missing_fields.append("job")
+    if request.credit_amount is None:
+        missing_fields.append("credit_amount")
+    if request.duration is None:
+        missing_fields.append("duration")
     
-    # Sample risk factors based on score
-    all_factors = [
-        "Late EMI payments detected",
-        "High credit utilization ratio",
-        "Multiple credit inquiries",
-        "Insufficient income documentation",
-        "Employment gap identified",
-        "Previous loan default history",
-        "Irregular transaction patterns",
-        "Low credit history length"
-    ]
+    if missing_fields:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Missing required fields: {', '.join(missing_fields)}"
+        )
     
-    # Select factors based on risk score
-    num_factors = 2 if risk_score < 0.5 else 4 if risk_score < 0.7 else 5
-    top_factors = random.sample(all_factors, num_factors)
+    # Calculate mock risk score based on inputs
+    risk_factors = []
+    base_score = 0.5
     
-    # Generate explanation
-    if risk_score < 0.4:
-        explanation = "Financial profile shows strong stability with consistent income and good credit history."
-    elif risk_score < 0.7:
-        explanation = "Financial profile shows moderate risk due to some credit utilization concerns and payment irregularities."
+    # Age factor
+    if request.age < 25:
+        risk_factors.append("Young age increases credit risk")
+        base_score += 0.1
+    elif request.age > 60:
+        risk_factors.append("Advanced age may affect repayment capacity")
+        base_score += 0.05
     else:
-        explanation = "Financial profile indicates elevated risk with multiple red flags in credit history and income verification."
+        base_score -= 0.05
     
-    # Mock heatmap (small 1x1 pixel PNG in base64 for testing)
-    # In real implementation, ML API would return actual heatmap visualization
-    mock_heatmap_base64 = None  # Set to None to skip heatmap generation in mock
+    # Job factor
+    if request.job == "unemployed":
+        risk_factors.append("Unemployed - no stable income source")
+        base_score += 0.25
+    elif request.job == "unskilled":
+        risk_factors.append("Unskilled employment - lower income stability")
+        base_score += 0.15
+    elif request.job == "highly skilled":
+        base_score -= 0.15
+    
+    # Housing factor
+    if request.housing == "own":
+        base_score -= 0.08
+    elif request.housing == "free":
+        risk_factors.append("No property ownership")
+        base_score += 0.05
+    
+    # Savings factor
+    if request.saving_accounts == "none":
+        risk_factors.append("No savings - limited financial buffer")
+        base_score += 0.15
+    elif request.saving_accounts == "little":
+        risk_factors.append("Insufficient savings")
+        base_score += 0.08
+    elif request.saving_accounts in ["quite rich", "rich"]:
+        base_score -= 0.12
+    
+    # Checking account factor
+    if request.checking_account in ["none", "little"]:
+        risk_factors.append("Low checking account balance")
+        base_score += 0.08
+    elif request.checking_account == "rich":
+        base_score -= 0.05
+    
+    # Credit amount vs duration
+    if request.credit_amount and request.duration:
+        monthly_payment = request.credit_amount / request.duration
+        if monthly_payment > 1000:
+            risk_factors.append(f"High monthly payment: ₹{monthly_payment:.2f}")
+            base_score += 0.12
+        if request.duration < 6:
+            risk_factors.append("Short loan duration increases payment pressure")
+            base_score += 0.05
+    
+    # Purpose factor
+    risky_purposes = ["vacation/others", "car"]
+    safe_purposes = ["education", "business"]
+    
+    if request.purpose in risky_purposes:
+        risk_factors.append(f"Non-essential loan purpose: {request.purpose}")
+        base_score += 0.06
+    elif request.purpose in safe_purposes:
+        base_score -= 0.03
+    
+    # Normalize score between 0 and 1
+    risk_score = max(0.0, min(1.0, base_score))
+    
+    # Determine prediction (0 = good credit, 1 = bad credit)
+    prediction = 1 if risk_score > 0.6 else 0
+    probability = risk_score if prediction == 1 else 1 - risk_score
+    
+    # Add default message if no risk factors
+    if not risk_factors:
+        risk_factors = ["Strong financial profile with no major risk indicators"]
     
     return {
-        "risk_score": risk_score,
-        "top_factors": top_factors,
-        "explanation": explanation,
-        "heatmap_base64": mock_heatmap_base64,
-        "heatmap_url": None,
-        "confidence": round(random.uniform(0.75, 0.95), 2),
-        "model_version": "mock-v1.0"
+        "prediction": prediction,
+        "risk_score": round(risk_score, 3),
+        "probability": round(probability, 3),
+        "risk_class": "bad" if prediction == 1 else "good",
+        "confidence": round(random.uniform(0.78, 0.96), 3),
+        "risk_factors": risk_factors,
+        "model_version": "mock-v1.0",
+        "timestamp": "2024-12-06T00:00:00Z"
     }
 
 @app.post("/compliance")
-def analyze_compliance(request: ComplianceRequest):
-    """Mock compliance analysis endpoint"""
+def check_compliance(request: CreditRiskRequest):
+    """
+    Mock compliance checking endpoint
+    Validates document against regulatory requirements
+    """
     
-    # Generate random compliance score
-    compliance_score = round(random.uniform(0.65, 0.95), 2)
+    violations = []
+    checks_performed = []
     
-    # Sample violations (fewer if higher compliance score)
-    all_violations = [
-        {
-            "clause": "RBI KYC 4.2(b)",
-            "issue": "Missing current address proof",
-            "severity": "medium"
-        },
-        {
-            "clause": "RBI Fair Practice 6.1",
-            "issue": "Interest rate disclosure incomplete",
+    # KYC Checks
+    checks_performed.append("KYC Documentation")
+    if request.age and request.age < 21:
+        violations.append({
+            "clause": "RBI KYC Guidelines 2.1",
+            "issue": "Age below minimum threshold for unsecured loans",
             "severity": "high"
-        },
-        {
-            "clause": "KYC Guidelines 2.1.3",
-            "issue": "PAN verification pending",
-            "severity": "high"
-        },
-        {
-            "clause": "AML Guidelines 5.2",
-            "issue": "Source of funds documentation incomplete",
+        })
+    
+    # Income verification
+    checks_performed.append("Income Verification")
+    if request.job == "unemployed":
+        violations.append({
+            "clause": "Income Documentation Requirement",
+            "issue": "No verifiable income source",
+            "severity": "critical"
+        })
+    
+    # Credit amount limits
+    checks_performed.append("Credit Limit Compliance")
+    if request.credit_amount and request.credit_amount > 1000000:
+        violations.append({
+            "clause": "Lending Guidelines Section 4.2",
+            "issue": "Loan amount exceeds regulatory limit for income bracket",
             "severity": "medium"
-        },
-        {
-            "clause": "PMLA Section 12",
-            "issue": "Beneficial ownership not disclosed",
+        })
+    
+    # Housing documentation
+    checks_performed.append("Address Verification")
+    if request.housing == "free":
+        violations.append({
+            "clause": "Address Proof Requirement",
+            "issue": "Unstable address - no ownership/rental documentation",
             "severity": "low"
-        }
-    ]
+        })
     
-    # Number of violations based on compliance score
-    if compliance_score > 0.9:
-        violations = []
-    elif compliance_score > 0.75:
-        violations = random.sample(all_violations, 1)
-    else:
-        violations = random.sample(all_violations, random.randint(2, 4))
+    # Account verification
+    checks_performed.append("Bank Account Verification")
+    if request.saving_accounts == "none" and request.checking_account == "none":
+        violations.append({
+            "clause": "Banking Relationship Requirement",
+            "issue": "No active bank accounts found",
+            "severity": "high"
+        })
+    
+    compliance_score = max(0.0, 1.0 - (len(violations) * 0.15))
     
     return {
-        "compliance_score": compliance_score,
+        "compliance_score": round(compliance_score, 3),
+        "status": "compliant" if compliance_score >= 0.8 else "non_compliant",
         "violations": violations,
-        "total_checks": 25,
-        "passed_checks": int(25 * compliance_score),
-        "status": "compliant" if compliance_score > 0.8 else "non_compliant",
-        "model_version": "mock-v1.0"
+        "checks_performed": checks_performed,
+        "total_checks": len(checks_performed),
+        "passed_checks": len(checks_performed) - len(violations),
+        "timestamp": "2024-12-06T00:00:00Z"
     }
 
 @app.post("/crossverify")
-def cross_verify(request: CrossVerifyRequest):
-    """Mock cross-verification endpoint"""
+def cross_verify(request: Dict):
+    """
+    Mock cross-verification endpoint
+    Verifies consistency of fields across documents
+    """
     
-    # Generate random verification results
-    fields = ["name", "dob", "pan", "address", "phone", "email"]
+    # Extract fields from request
+    fields = {
+        "age": request.get("age"),
+        "gender": request.get("gender"),
+        "job": request.get("job"),
+        "housing": request.get("housing"),
+        "credit_amount": request.get("credit_amount"),
+        "duration": request.get("duration")
+    }
+    
     matches = {}
+    discrepancies = []
     
-    for field in fields:
-        rand = random.random()
-        if rand < 0.7:
-            matches[field] = "match"
-        elif rand < 0.85:
-            matches[field] = "partial_match"
+    # Simulate field verification with random confidence
+    for field, value in fields.items():
+        if value is None:
+            matches[field] = "not_provided"
+            discrepancies.append({
+                "field": field,
+                "status": "missing",
+                "details": f"{field.upper()} not found in document"
+            })
         else:
-            matches[field] = "mismatch"
+            rand = random.random()
+            if rand < 0.85:  # 85% match rate
+                matches[field] = "match"
+            elif rand < 0.95:  # 10% partial match
+                matches[field] = "partial_match"
+                discrepancies.append({
+                    "field": field,
+                    "status": "partial_match",
+                    "details": f"{field.upper()} shows minor discrepancies",
+                    "confidence": round(random.uniform(0.5, 0.8), 2)
+                })
+            else:  # 5% mismatch
+                matches[field] = "mismatch"
+                discrepancies.append({
+                    "field": field,
+                    "status": "mismatch",
+                    "details": f"{field.upper()} does not match across documents",
+                    "severity": "high"
+                })
     
     # Calculate overall score
     match_scores = {
         "match": 1.0,
-        "partial_match": 0.5,
-        "mismatch": 0.0
+        "partial_match": 0.6,
+        "mismatch": 0.0,
+        "not_provided": 0.5
     }
     
-    total_score = sum(match_scores[status] for status in matches.values())
-    overall_score = round(total_score / len(fields), 2)
-    
-    # Generate discrepancy details
-    discrepancies = []
-    for field, status in matches.items():
-        if status != "match":
-            discrepancies.append({
-                "field": field,
-                "status": status,
-                "details": f"{field.upper()} shows {status.replace('_', ' ')}"
-            })
+    valid_matches = [status for status in matches.values() if status != "not_provided"]
+    if valid_matches:
+        total_score = sum(match_scores[status] for status in valid_matches)
+        overall_score = total_score / len(valid_matches)
+    else:
+        overall_score = 0.0
     
     return {
+        "overall_score": round(overall_score, 3),
+        "verification_status": "verified" if overall_score >= 0.8 else "failed",
         "matches": matches,
-        "overall_score": overall_score,
         "discrepancies": discrepancies,
-        "confidence": round(random.uniform(0.8, 0.95), 2),
-        "documents_compared": len(request.document_ids),
-        "model_version": "mock-v1.0"
+        "confidence": round(random.uniform(0.82, 0.94), 3),
+        "documents_compared": len(request.get("document_ids", [])),
+        "timestamp": "2024-12-06T00:00:00Z"
+    }
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "IRIS Credit Risk Mock API",
+        "version": "1.0.0",
+        "endpoints_available": ["predict", "compliance", "crossverify"]
     }
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting IRIS ML Mock API on http://localhost:5000")
-    print("Endpoints available: /risk, /compliance, /crossverify")
+    
+    print("=" * 60)
+    print("IRIS Credit Risk Mock API Server")
+    print("=" * 60)
+    print("\n🚀 Starting on http://localhost:5000")
+    print("\n📍 Available Endpoints:")
+    print("  POST /predict      - Credit risk prediction")
+    print("  POST /compliance   - Document compliance check")
+    print("  POST /crossverify  - Field cross-verification")
+    print("  GET  /health       - Health check")
+    print("\n📋 Expected Fields:")
+    print("  - age (18-100)")
+    print("  - gender (male/female)")
+    print("  - job (unemployed/unskilled/skilled/highly skilled)")
+    print("  - housing (free/rent/own)")
+    print("  - saving_accounts (none/little/moderate/quite rich/rich)")
+    print("  - checking_account (none/little/moderate/rich)")
+    print("  - credit_amount (positive number)")
+    print("  - duration (months, positive integer)")
+    print("  - purpose (business/car/education/etc.)")
+    print("\n" + "=" * 60)
+    
     uvicorn.run(app, host="0.0.0.0", port=5000, reload=True)

@@ -5,6 +5,7 @@ IRIS Backend Utilities Package
 from .auth import verify_token, get_user_profile, supabase
 from .storage import upload_document_to_supabase, create_signed_url_for_path
 from .extraction import extract_and_store_texts, get_document_full_text
+from .parser import parse_credit_fields, validate_parsed_fields
 from .analysis import run_full_analysis_background, call_ml
 from .dossier import generate_and_upload_dossier
 from .cleanup import delete_user_data_on_logout
@@ -19,6 +20,8 @@ __all__ = [
     'create_signed_url_for_path',
     'extract_and_store_texts',
     'get_document_full_text',
+    'parse_credit_fields',
+    'validate_parsed_fields',
     'run_full_analysis_background',
     'call_ml',
     'generate_and_upload_dossier',
